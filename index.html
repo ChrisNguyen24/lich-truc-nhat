@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lịch trực nhật</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #fff;
+    --line: #e3e6ea;
+    --text: #1d2228;
+    --muted: #6b7480;
+    --accent: #2f6fed;
+    --accent-soft: #e8f0ff;
+    --warn: #b3541e;
+    --out: #aab1ba;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171b;
+      --card: #1c2027;
+      --line: #2c323b;
+      --text: #e8eaed;
+      --muted: #98a1ad;
+      --accent: #6b9bff;
+      --accent-soft: #23304a;
+      --warn: #e2a06a;
+      --out: #596271;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 64px;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input, textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+  }
+  textarea { min-height: 96px; resize: vertical; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 180px; }
+  button {
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font: inherit;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { opacity: .9; color: #fff; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .bar .title { font-weight: 600; font-size: 16px; min-width: 150px; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th, td { text-align: left; padding: 8px; border: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; font-weight: 600; }
+  .month td.day { height: 64px; }
+  .month td.out .num { color: var(--out); }
+  .month .num { font-size: 13px; color: var(--muted); }
+  .month td.today .num { background: var(--accent); color: #fff; border-radius: 999px; padding: 0 6px; display: inline-block; }
+  .month th.who, .month td.who { width: 180px; }
+  tr.current > td { background: var(--accent-soft); }
+  .who .name { font-weight: 600; }
+  .ops { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .ops button { padding: 3px 8px; font-size: 12px; }
+  .tag { font-size: 11px; color: var(--warn); display: block; }
+  .date { color: var(--muted); font-size: 13px; }
+  .swapping > td { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .status { font-size: 12px; color: var(--muted); margin-left: auto; }
+  .status.err { color: var(--warn); }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--out); margin-right: 5px; vertical-align: 1px; }
+  .dot.on { background: #2e9e5b; }
+  .dot.busy { background: var(--accent); }
+  .dot.err { background: var(--warn); }
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: var(--text); color: var(--bg);
+    padding: 8px 14px; border-radius: 999px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  #toast.show { opacity: 1; }
+  @media (max-width: 620px) {
+    .month th.who, .month td.who { width: 110px; }
+    .month td.day { height: 48px; }
+    th, td { padding: 5px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lịch trực nhật</h1>
+  <p class="sub">Mỗi người trực một tuần, xoay vòng. Có thể bỏ tuần hoặc đổi tuần cho nhau.</p>
+
+  <section>
+    <div class="bar">
+      <button id="prev">‹</button>
+      <button id="today">Hôm nay</button>
+      <button id="next">›</button>
+      <span class="title" id="title"></span>
+      <span class="status" id="status"><span class="dot" id="dot"></span><span id="statusText">Chỉ lưu trên máy này</span></span>
+    </div>
+    <div id="cal"></div>
+    <p class="hint">Bỏ tuần: người đó nhường lượt, cả nhóm dịch lên một tuần. Đổi: bấm "Đổi" ở hai tuần muốn hoán đổi.</p>
+  </section>
+
+  <section>
+    <h2>Thành viên &amp; cấu hình</h2>
+    <label for="members">Danh sách (mỗi dòng một người, theo thứ tự trực)</label>
+    <textarea id="members" placeholder="An&#10;Bình&#10;Chi"></textarea>
+    <div class="row" style="margin-top:12px">
+      <div>
+        <label for="start">Tuần đầu bắt đầu</label>
+        <input type="date" id="start">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="apply">Cập nhật lịch</button>
+      <button id="reset">Xóa tất cả thay đổi</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Chia sẻ</h2>
+    <p class="hint" style="margin-top:0">Lịch lưu trong Google Sheet chung, tự đồng bộ 30 giây một lần. Gửi link cho nhóm là ai cũng mở được.</p>
+    <div class="actions">
+      <button class="primary" id="copy">Sao chép link</button>
+      <button id="export">Tải file JSON</button>
+      <button id="importBtn">Nạp file JSON</button>
+      <input type="file" id="importFile" accept="application/json" hidden>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const DAY = 86400000, WEEK = 7 * DAY;
+const DOW = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+
+// Endpoint of the Apps Script web app that stores the schedule in a Google Sheet.
+const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbzX2BmSYnTZFV3iiDzU7QpGTXYfhrYmISGfpxMU7yqwe0gJDiuHjR5tp26U-l3YpuG2/exec';
+
+let state = { members: [], start: mondayOf(new Date()), skips: [], swaps: [], updatedAt: 0, api: DEFAULT_API };
+let polling = null;
+let cursor = { y: new Date().getFullYear(), m: new Date().getMonth() };
+let pendingSwap = null;
+
+function mondayOf(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return iso(x);
+}
+function iso(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function parseISO(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+function fmt(d) {
+  return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
+}
+function addDays(d, n) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+}
+function weekIndexOf(d) {
+  return Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - parseISO(state.start)) / WEEK);
+}
+
+// Base rotation + skips, then swaps applied in order.
+function schedule(count) {
+  const n = state.members.length;
+  const out = [];
+  if (!n || count <= 0) return out;
+  const skips = state.skips.slice().sort((a, b) => a - b);
+  for (let w = 0; w < count; w++) {
+    const offset = skips.filter(s => s <= w).length;
+    out.push({ week: w, name: state.members[(w + offset) % n], skipped: skips.includes(w) });
+  }
+  for (const [a, b] of state.swaps) {
+    if (a < count && b < count) {
+      const t = out[a].name; out[a].name = out[b].name; out[b].name = t;
+      out[a].swapped = out[b].swapped = true;
+    }
+  }
+  return out;
+}
+
+function currentWeek() {
+  return weekIndexOf(new Date());
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function whoCell(entry, week) {
+  if (!entry) return '<td class="who"><span class="date">—</span></td>';
+  return '<td class="who">' +
+    '<span class="name">' + esc(entry.name) + '</span>' +
+    (entry.skipped ? '<span class="tag">đã bỏ lượt</span>' : '') +
+    (entry.swapped ? '<span class="tag">đã đổi</span>' : '') +
+    '<span class="ops">' +
+      '<button data-skip="' + week + '">Bỏ tuần</button>' +
+      '<button data-swap="' + week + '">' + (pendingSwap === week ? 'Hủy' : 'Đổi') + '</button>' +
+    '</span></td>';
+}
+
+function renderMonth() {
+  const first = new Date(cursor.y, cursor.m, 1);
+  const last = new Date(cursor.y, cursor.m + 1, 0);
+  const gridStart = parseISO(mondayOf(first));
+  const gridEnd = addDays(parseISO(mondayOf(last)), 6);
+  const sched = schedule(Math.max(0, weekIndexOf(gridEnd) + 1));
+  const now = currentWeek();
+  const todayISO = iso(new Date());
+
+  let html = '<table class="month"><thead><tr><th class="who">Người trực</th>' +
+    DOW.map(d => '<th>' + d + '</th>').join('') + '</tr></thead><tbody>';
+
+  for (let d = gridStart; d <= gridEnd; d = addDays(d, 7)) {
+    const w = weekIndexOf(d);
+    const entry = w >= 0 ? sched[w] : null;
+    const cls = [w === now ? 'current' : '', pendingSwap === w ? 'swapping' : ''].filter(Boolean).join(' ');
+    html += '<tr class="' + cls + '">' + whoCell(entry, w);
+    for (let i = 0; i < 7; i++) {
+      const day = addDays(d, i);
+      const outside = day.getMonth() !== cursor.m;
+      html += '<td class="day' + (outside ? ' out' : '') + (iso(day) === todayISO ? ' today' : '') + '">' +
+        '<span class="num">' + day.getDate() + '</span></td>';
+    }
+    html += '</tr>';
+  }
+  return html + '</tbody></table>';
+}
+
+function render() {
+  document.getElementById('members').value = state.members.join('\n');
+  document.getElementById('start').value = state.start;
+  document.getElementById('title').textContent = 'Tháng ' + (cursor.m + 1) + '/' + cursor.y;
+
+  const cal = document.getElementById('cal');
+  if (!state.members.length) {
+    cal.innerHTML = '<p class="date">Chưa có thành viên nào. Nhập danh sách bên dưới rồi bấm "Cập nhật lịch".</p>';
+    return;
+  }
+  cal.innerHTML = renderMonth();
+}
+
+document.getElementById('cal').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  if (btn.dataset.skip !== undefined) {
+    const w = Number(btn.dataset.skip);
+    if (w < 0) return;
+    if (!state.skips.includes(w)) state.skips.push(w);
+    pendingSwap = null;
+    save();
+  } else if (btn.dataset.swap !== undefined) {
+    const w = Number(btn.dataset.swap);
+    if (w < 0) return;
+    if (pendingSwap === null) { pendingSwap = w; render(); return; }
+    if (pendingSwap === w) { pendingSwap = null; render(); return; }
+    state.swaps.push([pendingSwap, w]);
+    pendingSwap = null;
+    save();
+  }
+});
+
+document.getElementById('prev').addEventListener('click', () => { shiftMonth(-1); });
+document.getElementById('next').addEventListener('click', () => { shiftMonth(1); });
+document.getElementById('today').addEventListener('click', () => {
+  const n = new Date();
+  cursor = { y: n.getFullYear(), m: n.getMonth() };
+  render();
+});
+function shiftMonth(delta) {
+  const d = new Date(cursor.y, cursor.m + delta, 1);
+  cursor = { y: d.getFullYear(), m: d.getMonth() };
+  render();
+}
+document.getElementById('apply').addEventListener('click', () => {
+  state.members = document.getElementById('members').value.split('\n').map(s => s.trim()).filter(Boolean);
+  state.start = document.getElementById('start').value || state.start;
+  save();
+  toast('Đã cập nhật');
+});
+
+document.getElementById('reset').addEventListener('click', () => {
+  state.skips = []; state.swaps = []; pendingSwap = null;
+  save();
+  toast('Đã xóa thay đổi');
+});
+
+document.getElementById('copy').addEventListener('click', async () => {
+  const url = location.origin + location.pathname + '#' + encode(shareable());
+  try { await navigator.clipboard.writeText(url); toast('Đã sao chép link'); }
+  catch { prompt('Sao chép link:', url); }
+});
+
+document.getElementById('export').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'lich-truc-nhat.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    state = normalize(JSON.parse(await file.text()));
+    save();
+    toast('Đã nạp lịch');
+  } catch { toast('File không hợp lệ'); }
+  e.target.value = '';
+});
+
+function normalize(o) {
+  return {
+    members: Array.isArray(o.members) ? o.members.map(String) : [],
+    start: /^\d{4}-\d{2}-\d{2}$/.test(o.start || '') ? o.start : mondayOf(new Date()),
+    skips: Array.isArray(o.skips) ? o.skips.map(Number).filter(Number.isInteger) : [],
+    swaps: Array.isArray(o.swaps) ? o.swaps.filter(p => Array.isArray(p) && p.length === 2).map(p => p.map(Number)) : [],
+    updatedAt: Number(o.updatedAt) || 0,
+    api: /^https:\/\/script\.google\.com\//.test(o.api || '') ? o.api : DEFAULT_API
+  };
+}
+
+// UTF-8 safe base64url in the URL hash.
+function encode(s) {
+  const bytes = new TextEncoder().encode(JSON.stringify(s));
+  let bin = '';
+  bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function decode(str) {
+  const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64 + '='.repeat((4 - b64.length % 4) % 4));
+  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function save() {
+  state.updatedAt = Date.now();
+  persist();
+  render();
+  push();
+}
+
+function persist() {
+  history.replaceState(null, '', '#' + encode(shareable()));
+  try { localStorage.setItem('truc-nhat', JSON.stringify(state)); } catch {}
+}
+
+/** Everything but the endpoint, which every copy of the app already knows. */
+function shareable() {
+  return { members: state.members, start: state.start, skips: state.skips, swaps: state.swaps, updatedAt: state.updatedAt };
+}
+
+// ---- Google Apps Script sync (last write wins, compared on updatedAt) ----
+
+function setStatus(text, kind) {
+  document.getElementById('statusText').textContent = text;
+  document.getElementById('dot').className = 'dot' + (kind ? ' ' + kind : '');
+  document.getElementById('status').className = 'status' + (kind === 'err' ? ' err' : '');
+}
+
+function hhmm() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+async function pull(quiet) {
+  if (!state.api) return;
+  if (!quiet) setStatus('Đang tải…', 'busy');
+  try {
+    const res = await fetch(state.api + '?t=' + Date.now(), { redirect: 'follow' });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'lỗi');
+    if (data.state && (data.state.updatedAt || 0) > (state.updatedAt || 0)) {
+      const api = state.api;
+      state = normalize(data.state);
+      state.api = api;
+      persist();
+      render();
+      toast('Đã cập nhật từ Sheet');
+    }
+    setStatus('Đã đồng bộ ' + hhmm(), 'on');
+  } catch (e) {
+    setStatus('Không kết nối được Sheet', 'err');
+  }
+}
+
+async function push() {
+  setStatus('Đang lưu…', 'busy');
+  const body = JSON.stringify({ members: state.members, start: state.start, skips: state.skips, swaps: state.swaps, updatedAt: state.updatedAt });
+  try {
+    // text/plain keeps this a simple request, so Apps Script needs no CORS preflight.
+    const res = await fetch(state.api, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body, redirect: 'follow' });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'lỗi');
+    setStatus('Đã lưu vào Sheet ' + hhmm(), 'on');
+  } catch (e) {
+    setStatus('Lưu thất bại — dữ liệu vẫn nằm trên máy này', 'err');
+  }
+}
+
+function startPolling() {
+  clearInterval(polling);
+  if (state.api) polling = setInterval(() => pull(true), 30000);
+}
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(true); });
+
+function load() {
+  if (location.hash.length > 1) {
+    try { state = normalize(decode(location.hash.slice(1))); return; } catch {}
+  }
+  try {
+    const raw = localStorage.getItem('truc-nhat');
+    if (raw) state = normalize(JSON.parse(raw));
+  } catch {}
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+addEventListener('hashchange', () => { load(); render(); startPolling(); pull(true); });
+load();
+render();
+startPolling();
+pull(true);
+</script>
+</body>
+</html>
