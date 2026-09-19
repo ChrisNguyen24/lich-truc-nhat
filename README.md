@@ -11,6 +11,7 @@ Single-file web app for a weekly chore rotation. One person per week, in order, 
 - The whole schedule is encoded in the URL hash, so sharing the link shares the schedule. State is also cached in `localStorage`.
 - Optional shared storage with no server of your own: connect a Google Apps Script web app backed by a Google Sheet (see `apps-script/README.md`). Changes are then saved to the Sheet and picked up by everyone else's tab.
 - Export/import the schedule as JSON.
+- Shared expense ledger: totals for income, spending, remaining fund and outstanding (not yet reimbursed) amounts, a month-grouped list, quick-add from the page, a "đã giải ngân" checkbox per entry, and delete. Everything writes straight to the Sheet.
 
 ## Run locally
 

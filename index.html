@@ -98,6 +98,26 @@
   .dot.on { background: #2e9e5b; }
   .dot.busy { background: var(--accent); }
   .dot.err { background: var(--warn); }
+  .sum { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+  .sum div { flex: 1 1 130px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .sum .k { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .sum .v { font-size: 17px; font-weight: 600; margin-top: 2px; }
+  .thu { color: #2e9e5b; }
+  .chi { color: #c0492b; }
+  .form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+  .form > div { flex: 1 1 120px; }
+  .form > div.wide { flex: 2 1 220px; }
+  .form input, .form select { padding: 7px 9px; }
+  .ledger td, .ledger th { border-left: 0; border-right: 0; padding: 7px 8px; }
+  .ledger td.amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .ledger td.settle { text-align: center; }
+  .ledger td.settle input { width: auto; height: 16px; }
+  .ledger tr.open td.amount { font-weight: 600; }
+  .ledger tr.done td { opacity: .55; }
+  .ledger td.del { text-align: right; width: 40px; }
+  .ledger td.del button { padding: 2px 7px; font-size: 12px; }
+  .ledger tr.month td { background: var(--bg); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .scroll { max-height: 420px; overflow: auto; }
   #toast {
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
     background: var(--text); color: var(--bg);
@@ -146,6 +166,31 @@
   </section>
 
   <section>
+    <h2>Thu chi</h2>
+    <div class="sum">
+      <div><div class="k">Tổng thu</div><div class="v thu" id="sumThu">0 đ</div></div>
+      <div><div class="k">Tổng chi</div><div class="v chi" id="sumChi">0 đ</div></div>
+      <div><div class="k">Quỹ còn</div><div class="v" id="sumLeft">0 đ</div></div>
+      <div><div class="k">Chưa giải ngân</div><div class="v" id="sumOpen">0 đ</div></div>
+    </div>
+    <div class="form">
+      <div><label for="enDate">Ngày</label><input type="date" id="enDate"></div>
+      <div><label for="enType">Loại</label><select id="enType"><option value="chi">Chi</option><option value="thu">Thu</option></select></div>
+      <div><label for="enAmount">Số tiền</label><input type="text" inputmode="numeric" id="enAmount" placeholder="150.000"></div>
+      <div class="wide"><label for="enNote">Nội dung</label><input type="text" id="enNote" placeholder="Nước giặt"></div>
+      <div><label for="enWho">Người</label><input type="text" id="enWho" list="memberList" placeholder="Tên"><datalist id="memberList"></datalist></div>
+      <div style="flex:0 0 auto"><label for="enSettled">Đã giải ngân</label><input type="checkbox" id="enSettled" style="width:auto;height:18px"></div>
+      <div style="flex:0 0 auto"><button class="primary" id="addEntry">Thêm</button></div>
+    </div>
+    <div class="scroll">
+      <table class="ledger">
+        <thead><tr><th style="width:90px">Ngày</th><th>Nội dung</th><th style="width:90px">Người</th><th style="width:120px">Số tiền</th><th style="width:90px">Giải ngân</th><th></th></tr></thead>
+        <tbody id="ledgerRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
     <h2>Chia sẻ</h2>
     <p class="hint" style="margin-top:0">Lịch lưu trong Google Sheet chung, tự đồng bộ 30 giây một lần. Gửi link cho nhóm là ai cũng mở được.</p>
     <div class="actions">
@@ -163,10 +208,11 @@ const DAY = 86400000, WEEK = 7 * DAY;
 const DOW = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 
 // Endpoint of the Apps Script web app that stores the schedule in a Google Sheet.
-const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbzX2BmSYnTZFV3iiDzU7QpGTXYfhrYmISGfpxMU7yqwe0gJDiuHjR5tp26U-l3YpuG2/exec';
+const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyqMaJzZiRmY0k18yeA8JxvHRyyAn15P2C-DFnwsHOT7z-B0aKNchPDMz83dCiWzSmJ/exec';
 
 let state = { members: [], start: mondayOf(new Date()), skips: [], swaps: [], updatedAt: 0, api: DEFAULT_API };
 let polling = null;
+let entries = [];
 let cursor = { y: new Date().getFullYear(), m: new Date().getMonth() };
 let pendingSwap = null;
 
@@ -214,6 +260,100 @@ function schedule(count) {
 function currentWeek() {
   return weekIndexOf(new Date());
 }
+
+/** Map a free-text name ("Vân lê", "*Quyến", "Khánh mua") onto a member. */
+function canonName(raw) {
+  const plain = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z]/g, '').toLowerCase();
+  const s = plain(raw);
+  if (!s) return '';
+  for (const m of state.members) {
+    const p = plain(m);
+    if (p && s.includes(p)) return m;
+  }
+  return String(raw).trim();
+}
+
+const vnd = n => new Intl.NumberFormat('vi-VN').format(Math.round(n)) + ' đ';
+
+function renderLedger() {
+  const list = entries.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  const thu = list.filter(e => e.type === 'thu').reduce((s, e) => s + e.amount, 0);
+  const chi = list.filter(e => e.type === 'chi').reduce((s, e) => s + e.amount, 0);
+  document.getElementById('sumThu').textContent = vnd(thu);
+  document.getElementById('sumChi').textContent = vnd(chi);
+  const left = document.getElementById('sumLeft');
+  left.textContent = vnd(thu - chi);
+  left.className = 'v ' + (thu - chi < 0 ? 'chi' : 'thu');
+  const open = list.filter(e => e.type === 'chi' && !e.settled).reduce((s, e) => s + e.amount, 0);
+  document.getElementById('sumOpen').textContent = vnd(open);
+
+  document.getElementById('memberList').innerHTML = state.members.map(m => '<option value="' + esc(m) + '">').join('');
+
+  let html = '', month = '';
+  for (const en of list) {
+    const m = en.date ? en.date.slice(0, 7) : 'Không rõ ngày';
+    if (m !== month) {
+      month = m;
+      const label = /^\d{4}-\d{2}$/.test(m) ? 'Tháng ' + Number(m.slice(5)) + '/' + m.slice(0, 4) : m;
+      html += '<tr class="month"><td colspan="6">' + label + '</td></tr>';
+    }
+    html += '<tr class="' + (en.settled ? 'done' : 'open') + '">' +
+      '<td class="date">' + (en.date ? en.date.slice(8) + '/' + en.date.slice(5, 7) : '—') + '</td>' +
+      '<td>' + esc(en.note) + (en.memo ? ' <span class="tag">' + esc(en.memo) + '</span>' : '') + '</td>' +
+      '<td class="date">' + esc(en.who) + '</td>' +
+      '<td class="amount ' + en.type + '">' + (en.type === 'thu' ? '+' : '−') + vnd(en.amount) + '</td>' +
+      '<td class="settle"><input type="checkbox" data-settle="' + esc(en.id) + '"' + (en.settled ? ' checked' : '') + ' title="Đã giải ngân"></td>' +
+      '<td class="del"><button data-del="' + esc(en.id) + '" title="Xóa">×</button></td>' +
+      '</tr>';
+  }
+  document.getElementById('ledgerRows').innerHTML = html ||
+    '<tr><td colspan="6" class="date">Chưa có khoản thu chi nào.</td></tr>';
+}
+
+async function postLedger(body) {
+  setStatus('Đang lưu…', 'busy');
+  try {
+    const res = await fetch(state.api, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), redirect: 'follow' }).then(r => r.json());
+    if (!res.ok) throw new Error(res.error || 'lỗi');
+    entries = res.entries || [];
+    renderLedger();
+    setStatus('Đã lưu vào Sheet ' + hhmm(), 'on');
+  } catch (e) {
+    setStatus('Lưu thất bại — thử lại', 'err');
+  }
+}
+
+document.getElementById('addEntry').addEventListener('click', () => {
+  const amount = Number(document.getElementById('enAmount').value.replace(/[^\d]/g, ''));
+  const note = document.getElementById('enNote').value.trim();
+  if (!amount) { toast('Nhập số tiền'); return; }
+  if (!note) { toast('Nhập nội dung'); return; }
+  const entry = {
+    date: document.getElementById('enDate').value || iso(new Date()),
+    type: document.getElementById('enType').value,
+    amount: amount,
+    note: note,
+    who: canonName(document.getElementById('enWho').value),
+    memo: '',
+    settled: document.getElementById('enSettled').checked
+  };
+  document.getElementById('enAmount').value = '';
+  document.getElementById('enNote').value = '';
+  postLedger({ kind: 'ledger.add', entry: entry });
+});
+
+// Enter anywhere in the quick-add form submits it.
+document.querySelectorAll('.form input').forEach(el => {
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('addEntry').click(); });
+});
+
+document.getElementById('ledgerRows').addEventListener('click', e => {
+  const box = e.target.closest('input[data-settle]');
+  if (box) { postLedger({ kind: 'ledger.settle', id: box.dataset.settle, settled: box.checked }); return; }
+  const btn = e.target.closest('button[data-del]');
+  if (!btn) return;
+  postLedger({ kind: 'ledger.delete', id: btn.dataset.del });
+});
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -351,7 +491,7 @@ function normalize(o) {
     skips: Array.isArray(o.skips) ? o.skips.map(Number).filter(Number.isInteger) : [],
     swaps: Array.isArray(o.swaps) ? o.swaps.filter(p => Array.isArray(p) && p.length === 2).map(p => p.map(Number)) : [],
     updatedAt: Number(o.updatedAt) || 0,
-    api: /^https:\/\/script\.google\.com\//.test(o.api || '') ? o.api : DEFAULT_API
+    api: DEFAULT_API
   };
 }
 
@@ -406,6 +546,7 @@ async function pull(quiet) {
     const res = await fetch(state.api + '?t=' + Date.now(), { redirect: 'follow' });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'lỗi');
+    if (Array.isArray(data.entries)) { entries = data.entries; renderLedger(); }
     if (data.state && (data.state.updatedAt || 0) > (state.updatedAt || 0)) {
       const api = state.api;
       state = normalize(data.state);
@@ -462,7 +603,9 @@ function toast(msg) {
 
 addEventListener('hashchange', () => { load(); render(); startPolling(); pull(true); });
 load();
+document.getElementById('enDate').value = iso(new Date());
 render();
+renderLedger();
 startPolling();
 pull(true);
 </script>
