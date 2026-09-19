@@ -143,7 +143,7 @@
       <button id="today">Hôm nay</button>
       <button id="next">›</button>
       <span class="title" id="title"></span>
-      <span class="status" id="status"><span class="dot" id="dot"></span><span id="statusText">Chỉ lưu trên máy này</span></span>
+      <span class="status" id="status"><span class="dot" id="dot"></span><span id="statusText">Đang tải…</span></span>
     </div>
     <div id="cal"></div>
     <p class="hint">Bỏ tuần: người đó nhường lượt, cả nhóm dịch lên một tuần. Đổi: bấm "Đổi" ở hai tuần muốn hoán đổi.</p>
@@ -178,7 +178,7 @@
       <div><label for="enType">Loại</label><select id="enType"><option value="chi">Chi</option><option value="thu">Thu</option></select></div>
       <div><label for="enAmount">Số tiền</label><input type="text" inputmode="numeric" id="enAmount" placeholder="150.000"></div>
       <div class="wide"><label for="enNote">Nội dung</label><input type="text" id="enNote" placeholder="Nước giặt"></div>
-      <div><label for="enWho">Người</label><input type="text" id="enWho" list="memberList" placeholder="Tên"><datalist id="memberList"></datalist></div>
+      <div><label for="enWho">Người</label><select id="enWho"></select></div>
       <div style="flex:0 0 auto"><label for="enSettled">Đã giải ngân</label><input type="checkbox" id="enSettled" style="width:auto;height:18px"></div>
       <div style="flex:0 0 auto"><button class="primary" id="addEntry">Thêm</button></div>
     </div>
@@ -261,18 +261,6 @@ function currentWeek() {
   return weekIndexOf(new Date());
 }
 
-/** Map a free-text name ("Vân lê", "*Quyến", "Khánh mua") onto a member. */
-function canonName(raw) {
-  const plain = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z]/g, '').toLowerCase();
-  const s = plain(raw);
-  if (!s) return '';
-  for (const m of state.members) {
-    const p = plain(m);
-    if (p && s.includes(p)) return m;
-  }
-  return String(raw).trim();
-}
-
 const vnd = n => new Intl.NumberFormat('vi-VN').format(Math.round(n)) + ' đ';
 
 function renderLedger() {
@@ -287,7 +275,10 @@ function renderLedger() {
   const open = list.filter(e => e.type === 'chi' && !e.settled).reduce((s, e) => s + e.amount, 0);
   document.getElementById('sumOpen').textContent = vnd(open);
 
-  document.getElementById('memberList').innerHTML = state.members.map(m => '<option value="' + esc(m) + '">').join('');
+  const who = document.getElementById('enWho');
+  const keep = who.value;
+  who.innerHTML = '<option value="">— chọn —</option>' + state.members.map(m => '<option value="' + esc(m) + '">' + esc(m) + '</option>').join('');
+  if (state.members.includes(keep)) who.value = keep;
 
   let html = '', month = '';
   for (const en of list) {
@@ -333,7 +324,7 @@ document.getElementById('addEntry').addEventListener('click', () => {
     type: document.getElementById('enType').value,
     amount: amount,
     note: note,
-    who: canonName(document.getElementById('enWho').value),
+    who: document.getElementById('enWho').value,
     memo: '',
     settled: document.getElementById('enSettled').checked
   };
@@ -343,7 +334,7 @@ document.getElementById('addEntry').addEventListener('click', () => {
 });
 
 // Enter anywhere in the quick-add form submits it.
-document.querySelectorAll('.form input').forEach(el => {
+document.querySelectorAll('.form input, .form select').forEach(el => {
   el.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('addEntry').click(); });
 });
 
