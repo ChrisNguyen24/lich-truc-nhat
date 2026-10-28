@@ -83,14 +83,36 @@
   .month td.out .num { color: var(--out); }
   .month .num { font-size: 13px; color: var(--muted); }
   .month td.today .num { background: var(--accent); color: #fff; border-radius: 999px; padding: 0 6px; display: inline-block; }
-  .month th.who, .month td.who { width: 180px; }
+  .month th.who, .month td.who { width: 230px; }
   tr.current > td { background: var(--accent-soft); }
-  .who .name { font-weight: 600; }
+  .person { display: flex; align-items: center; gap: 8px; }
+  .avatar {
+    flex: 0 0 30px; width: 30px; height: 30px; border-radius: 50%;
+    display: grid; place-items: center;
+    color: #fff; font-weight: 600; font-size: 13px;
+  }
+  .avatar.empty { background: var(--out); }
+  .who .name { font-weight: 600; display: block; line-height: 1.25; }
+  .who .span { display: block; color: var(--muted); font-size: 12px; }
+  .badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  .badge { font-size: 11px; line-height: 1.6; padding: 0 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.now { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .badge.skip { color: var(--warn); border-color: var(--warn); }
+  .badge.swap { color: var(--accent); border-color: var(--accent); }
   .ops { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
   .ops button { padding: 3px 8px; font-size: 12px; }
   .tag { font-size: 11px; color: var(--warn); display: block; }
   .date { color: var(--muted); font-size: 13px; }
-  .swapping > td { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .swapbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--accent-soft); border: 1px solid var(--accent);
+    border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; font-size: 13px;
+  }
+  .swapbar .who-chip { font-weight: 600; }
+  .swapbar button { margin-left: auto; }
+  tr.swapping > td { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .picking tr.pick:hover > td { background: var(--accent-soft); }
+  .picking tr.dim > td { opacity: .45; }
   .hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
   .status { font-size: 12px; color: var(--muted); margin-left: auto; }
   .status.err { color: var(--warn); }
@@ -125,10 +147,18 @@
     opacity: 0; pointer-events: none; transition: opacity .2s;
   }
   #toast.show { opacity: 1; }
+  #toast.action { display: flex; align-items: center; gap: 12px; padding: 7px 8px 7px 16px; pointer-events: auto; }
+  #toast button {
+    background: transparent; border: 1px solid var(--bg); color: var(--bg);
+    border-radius: 999px; padding: 3px 11px; font-size: 12px;
+  }
+  #toast button:hover { background: var(--bg); color: var(--text); }
   @media (max-width: 620px) {
-    .month th.who, .month td.who { width: 110px; }
+    .month th.who, .month td.who { width: 130px; }
     .month td.day { height: 48px; }
     th, td { padding: 5px; }
+    .avatar { flex-basis: 24px; width: 24px; height: 24px; font-size: 11px; }
+    .who .span { font-size: 11px; }
   }
 </style>
 </head>
@@ -146,7 +176,7 @@
       <span class="status" id="status"><span class="dot" id="dot"></span><span id="statusText">Đang tải…</span></span>
     </div>
     <div id="cal"></div>
-    <p class="hint">Bỏ tuần: người đó nhường lượt, cả nhóm dịch lên một tuần. Đổi: bấm "Đổi" ở hai tuần muốn hoán đổi.</p>
+    <p class="hint">Bỏ tuần: người đó nhường lượt, cả nhóm dịch lên một tuần — bấm "Hoàn lượt" để hủy. Đổi: bấm "Đổi" ở một tuần, rồi bấm vào tuần muốn hoán đổi.</p>
   </section>
 
   <section>
@@ -350,16 +380,63 @@ function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-function whoCell(entry, week) {
-  if (!entry) return '<td class="who"><span class="date">—</span></td>';
+// Stable colour per member: golden-angle hue steps keep neighbours distinct.
+function memberColor(name) {
+  const i = state.members.indexOf(name);
+  if (i < 0) return 'var(--out)';
+  return 'hsl(' + Math.round((i * 137.5) % 360) + ' 52% 45%)';
+}
+
+function initial(name) {
+  return (String(name).trim()[0] || '?').toUpperCase();
+}
+
+/** The week this one was swapped with, or null. */
+function swapPartner(week) {
+  for (let i = state.swaps.length - 1; i >= 0; i--) {
+    const [a, b] = state.swaps[i];
+    if (a === week) return b;
+    if (b === week) return a;
+  }
+  return null;
+}
+
+function whoCell(entry, week, monday) {
+  const span = fmt(monday) + ' – ' + fmt(addDays(monday, 6));
+  if (!entry) {
+    return '<td class="who"><div class="person">' +
+      '<span class="avatar empty">–</span>' +
+      '<span><span class="name">Chưa tới lượt</span><span class="span">' + span + '</span></span>' +
+      '</div></td>';
+  }
+
+  const partner = swapPartner(week);
+  const badges = [];
+  if (week === currentWeek()) badges.push('<span class="badge now">Tuần này</span>');
+  if (entry.skipped) badges.push('<span class="badge skip">đã bỏ lượt</span>');
+  if (partner !== null) badges.push('<span class="badge swap">đổi với tuần ' + (partner + 1) + '</span>');
+
+  let ops;
+  if (pendingSwap === week) {
+    ops = '<button class="primary" data-swap="' + week + '">Hủy chọn</button>';
+  } else if (pendingSwap !== null) {
+    ops = '<button class="primary" data-swap="' + week + '">Đổi với tuần ' + (pendingSwap + 1) + '</button>';
+  } else {
+    ops = (entry.skipped
+        ? '<button data-unskip="' + week + '">Hoàn lượt</button>'
+        : '<button data-skip="' + week + '">Bỏ tuần</button>') +
+      '<button data-swap="' + week + '">Đổi</button>' +
+      (partner !== null ? '<button data-unswap="' + week + '">Bỏ đổi</button>' : '');
+  }
+
   return '<td class="who">' +
-    '<span class="name">' + esc(entry.name) + '</span>' +
-    (entry.skipped ? '<span class="tag">đã bỏ lượt</span>' : '') +
-    (entry.swapped ? '<span class="tag">đã đổi</span>' : '') +
-    '<span class="ops">' +
-      '<button data-skip="' + week + '">Bỏ tuần</button>' +
-      '<button data-swap="' + week + '">' + (pendingSwap === week ? 'Hủy' : 'Đổi') + '</button>' +
-    '</span></td>';
+    '<div class="person">' +
+      '<span class="avatar" style="background:' + memberColor(entry.name) + '">' + esc(initial(entry.name)) + '</span>' +
+      '<span><span class="name">' + esc(entry.name) + '</span>' +
+      '<span class="span">Tuần ' + (week + 1) + ' · ' + span + '</span></span>' +
+    '</div>' +
+    (badges.length ? '<div class="badges">' + badges.join('') + '</div>' : '') +
+    '<div class="ops">' + ops + '</div></td>';
 }
 
 function renderMonth() {
@@ -371,14 +448,27 @@ function renderMonth() {
   const now = currentWeek();
   const todayISO = iso(new Date());
 
-  let html = '<table class="month"><thead><tr><th class="who">Người trực</th>' +
+  let html = '';
+  if (pendingSwap !== null) {
+    const picked = sched[pendingSwap];
+    html += '<div class="swapbar"><span>Đang đổi <span class="who-chip">tuần ' + (pendingSwap + 1) +
+      (picked ? ' · ' + esc(picked.name) : '') + '</span> — chọn tuần muốn hoán đổi.</span>' +
+      '<button data-swap="' + pendingSwap + '">Thôi</button></div>';
+  }
+
+  html += '<table class="month' + (pendingSwap !== null ? ' picking' : '') + '">' +
+    '<thead><tr><th class="who">Người trực</th>' +
     DOW.map(d => '<th>' + d + '</th>').join('') + '</tr></thead><tbody>';
 
   for (let d = gridStart; d <= gridEnd; d = addDays(d, 7)) {
     const w = weekIndexOf(d);
     const entry = w >= 0 ? sched[w] : null;
-    const cls = [w === now ? 'current' : '', pendingSwap === w ? 'swapping' : ''].filter(Boolean).join(' ');
-    html += '<tr class="' + cls + '">' + whoCell(entry, w);
+    const cls = [
+      w === now ? 'current' : '',
+      pendingSwap === w ? 'swapping' : '',
+      pendingSwap !== null && pendingSwap !== w ? (entry ? 'pick' : 'dim') : ''
+    ].filter(Boolean).join(' ');
+    html += '<tr class="' + cls + '">' + whoCell(entry, w, d);
     for (let i = 0; i < 7; i++) {
       const day = addDays(d, i);
       const outside = day.getMonth() !== cursor.m;
@@ -405,21 +495,47 @@ function render() {
 
 document.getElementById('cal').addEventListener('click', e => {
   const btn = e.target.closest('button');
-  if (!btn) return;
+  if (!btn) {
+    // While picking a swap partner, the whole row is a target.
+    if (pendingSwap === null) return;
+    const row = e.target.closest('tr.pick');
+    if (!row) return;
+    row.querySelector('button[data-swap]').click();
+    return;
+  }
   if (btn.dataset.skip !== undefined) {
     const w = Number(btn.dataset.skip);
     if (w < 0) return;
+    const before = state.skips.slice();
     if (!state.skips.includes(w)) state.skips.push(w);
     pendingSwap = null;
     save();
+    toast('Tuần ' + (w + 1) + ' đã bỏ lượt', () => { state.skips = before; save(); });
+  } else if (btn.dataset.unskip !== undefined) {
+    const w = Number(btn.dataset.unskip);
+    const before = state.skips.slice();
+    state.skips = state.skips.filter(s => s !== w);
+    pendingSwap = null;
+    save();
+    toast('Đã hoàn lượt tuần ' + (w + 1), () => { state.skips = before; save(); });
+  } else if (btn.dataset.unswap !== undefined) {
+    const w = Number(btn.dataset.unswap);
+    const before = state.swaps.slice();
+    state.swaps = state.swaps.filter(([a, b]) => a !== w && b !== w);
+    pendingSwap = null;
+    save();
+    toast('Đã bỏ đổi tuần ' + (w + 1), () => { state.swaps = before; save(); });
   } else if (btn.dataset.swap !== undefined) {
     const w = Number(btn.dataset.swap);
     if (w < 0) return;
     if (pendingSwap === null) { pendingSwap = w; render(); return; }
     if (pendingSwap === w) { pendingSwap = null; render(); return; }
-    state.swaps.push([pendingSwap, w]);
+    const before = state.swaps.slice();
+    const from = pendingSwap;
+    state.swaps.push([from, w]);
     pendingSwap = null;
     save();
+    toast('Đã đổi tuần ' + (from + 1) + ' ↔ tuần ' + (w + 1), () => { state.swaps = before; save(); });
   }
 });
 
@@ -443,9 +559,10 @@ document.getElementById('apply').addEventListener('click', () => {
 });
 
 document.getElementById('reset').addEventListener('click', () => {
+  const skips = state.skips.slice(), swaps = state.swaps.slice();
   state.skips = []; state.swaps = []; pendingSwap = null;
   save();
-  toast('Đã xóa thay đổi');
+  toast('Đã xóa thay đổi', () => { state.skips = skips; state.swaps = swaps; save(); });
 });
 
 document.getElementById('copy').addEventListener('click', async () => {
@@ -584,12 +701,24 @@ function load() {
 }
 
 let toastTimer;
-function toast(msg) {
+/** `undo` adds a "Hoàn tác" button and keeps the toast up longer. */
+function toast(msg, undo) {
   const el = document.getElementById('toast');
   el.textContent = msg;
+  el.classList.toggle('action', !!undo);
+  if (undo) {
+    const btn = document.createElement('button');
+    btn.textContent = 'Hoàn tác';
+    btn.addEventListener('click', () => { hideToast(); undo(); });
+    el.appendChild(btn);
+  }
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+  toastTimer = setTimeout(hideToast, undo ? 7000 : 1800);
+}
+
+function hideToast() {
+  document.getElementById('toast').classList.remove('show');
 }
 
 addEventListener('hashchange', () => { load(); render(); startPolling(); pull(true); });
