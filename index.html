@@ -92,6 +92,15 @@
     color: #fff; font-weight: 600; font-size: 13px;
   }
   .avatar.empty { background: var(--out); }
+  .avatar-wrap { position: relative; flex: 0 0 30px; line-height: 0; }
+  .check {
+    position: absolute; right: -3px; bottom: -3px;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: #2e9e5b; color: #fff; font-size: 9px; line-height: 1;
+    display: grid; place-items: center; border: 2px solid var(--card);
+  }
+  .who.is-done .name { color: #2e9e5b; }
+  .badge.done { color: #2e9e5b; border-color: #2e9e5b; }
   .who .name { font-weight: 600; display: block; line-height: 1.25; }
   .who .span { display: block; color: var(--muted); font-size: 12px; }
   .badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
@@ -176,7 +185,7 @@
       <span class="status" id="status"><span class="dot" id="dot"></span><span id="statusText">Đang tải…</span></span>
     </div>
     <div id="cal"></div>
-    <p class="hint">Bỏ tuần: người đó nhường lượt, cả nhóm dịch lên một tuần — bấm "Hoàn lượt" để hủy. Đổi: bấm "Đổi" ở một tuần, rồi bấm vào tuần muốn hoán đổi.</p>
+    <p class="hint">Đánh dấu xong: ghi nhận tuần đó đã trực. Bỏ tuần: người đó nhường lượt, cả nhóm dịch lên một tuần — bấm "Hoàn lượt" để hủy. Đổi: bấm "Đổi" ở một tuần, rồi bấm vào tuần muốn hoán đổi.</p>
   </section>
 
   <section>
@@ -240,7 +249,7 @@ const DOW = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 // Endpoint of the Apps Script web app that stores the schedule in a Google Sheet.
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyqMaJzZiRmY0k18yeA8JxvHRyyAn15P2C-DFnwsHOT7z-B0aKNchPDMz83dCiWzSmJ/exec';
 
-let state = { members: [], start: mondayOf(new Date()), skips: [], swaps: [], updatedAt: 0, api: DEFAULT_API };
+let state = { members: [], start: mondayOf(new Date()), skips: [], swaps: [], done: [], updatedAt: 0, api: DEFAULT_API };
 let polling = null;
 let entries = [];
 let cursor = { y: new Date().getFullYear(), m: new Date().getMonth() };
@@ -411,8 +420,11 @@ function whoCell(entry, week, monday) {
   }
 
   const partner = swapPartner(week);
+  const key = iso(monday);
+  const isDone = state.done.includes(key);
   const badges = [];
   if (week === currentWeek()) badges.push('<span class="badge now">Tuần này</span>');
+  if (isDone) badges.push('<span class="badge done">đã trực xong</span>');
   if (entry.skipped) badges.push('<span class="badge skip">đã bỏ lượt</span>');
   if (partner !== null) badges.push('<span class="badge swap">đổi với tuần ' + (partner + 1) + '</span>');
 
@@ -422,16 +434,22 @@ function whoCell(entry, week, monday) {
   } else if (pendingSwap !== null) {
     ops = '<button class="primary" data-swap="' + week + '">Đổi với tuần ' + (pendingSwap + 1) + '</button>';
   } else {
-    ops = (entry.skipped
+    ops = (isDone
+        ? '<button data-undone="' + key + '" data-week="' + week + '">Bỏ đánh dấu</button>'
+        : '<button data-done="' + key + '" data-week="' + week + '">Đánh dấu xong</button>') +
+      (entry.skipped
         ? '<button data-unskip="' + week + '">Hoàn lượt</button>'
         : '<button data-skip="' + week + '">Bỏ tuần</button>') +
       '<button data-swap="' + week + '">Đổi</button>' +
       (partner !== null ? '<button data-unswap="' + week + '">Bỏ đổi</button>' : '');
   }
 
-  return '<td class="who">' +
+  return '<td class="who' + (isDone ? ' is-done' : '') + '">' +
     '<div class="person">' +
-      '<span class="avatar" style="background:' + memberColor(entry.name) + '">' + esc(initial(entry.name)) + '</span>' +
+      '<span class="avatar-wrap">' +
+        '<span class="avatar" style="background:' + memberColor(entry.name) + '">' + esc(initial(entry.name)) + '</span>' +
+        (isDone ? '<span class="check" title="Đã trực xong">✓</span>' : '') +
+      '</span>' +
       '<span><span class="name">' + esc(entry.name) + '</span>' +
       '<span class="span">Tuần ' + (week + 1) + ' · ' + span + '</span></span>' +
     '</div>' +
@@ -503,7 +521,21 @@ document.getElementById('cal').addEventListener('click', e => {
     row.querySelector('button[data-swap]').click();
     return;
   }
-  if (btn.dataset.skip !== undefined) {
+  if (btn.dataset.done !== undefined) {
+    const key = btn.dataset.done;
+    const before = state.done.slice();
+    if (!state.done.includes(key)) state.done.push(key);
+    pendingSwap = null;
+    save();
+    toast('Tuần ' + (Number(btn.dataset.week) + 1) + ' đã trực xong', () => { state.done = before; save(); });
+  } else if (btn.dataset.undone !== undefined) {
+    const key = btn.dataset.undone;
+    const before = state.done.slice();
+    state.done = state.done.filter(d => d !== key);
+    pendingSwap = null;
+    save();
+    toast('Đã bỏ đánh dấu tuần ' + (Number(btn.dataset.week) + 1), () => { state.done = before; save(); });
+  } else if (btn.dataset.skip !== undefined) {
     const w = Number(btn.dataset.skip);
     if (w < 0) return;
     const before = state.skips.slice();
@@ -592,12 +624,21 @@ document.getElementById('importFile').addEventListener('change', async e => {
   e.target.value = '';
 });
 
+/** A done mark is the Monday of the week. Old marks were week numbers. */
+function doneKey(v, start) {
+  const s = String(v);
+  if (/^\d+$/.test(s)) return mondayOf(addDays(parseISO(start), Number(s) * 7));
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? mondayOf(parseISO(s)) : '';
+}
+
 function normalize(o) {
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(o.start || '') ? o.start : mondayOf(new Date());
   return {
     members: Array.isArray(o.members) ? o.members.map(String) : [],
-    start: /^\d{4}-\d{2}-\d{2}$/.test(o.start || '') ? o.start : mondayOf(new Date()),
+    start: start,
     skips: Array.isArray(o.skips) ? o.skips.map(Number).filter(Number.isInteger) : [],
     swaps: Array.isArray(o.swaps) ? o.swaps.filter(p => Array.isArray(p) && p.length === 2).map(p => p.map(Number)) : [],
+    done: Array.isArray(o.done) ? [...new Set(o.done.map(d => doneKey(d, start)).filter(Boolean))] : [],
     updatedAt: Number(o.updatedAt) || 0,
     api: DEFAULT_API
   };
@@ -631,7 +672,7 @@ function persist() {
 
 /** Everything but the endpoint, which every copy of the app already knows. */
 function shareable() {
-  return { members: state.members, start: state.start, skips: state.skips, swaps: state.swaps, updatedAt: state.updatedAt };
+  return { members: state.members, start: state.start, skips: state.skips, swaps: state.swaps, done: state.done, updatedAt: state.updatedAt };
 }
 
 // ---- Google Apps Script sync (last write wins, compared on updatedAt) ----
@@ -671,7 +712,7 @@ async function pull(quiet) {
 
 async function push() {
   setStatus('Đang lưu…', 'busy');
-  const body = JSON.stringify({ members: state.members, start: state.start, skips: state.skips, swaps: state.swaps, updatedAt: state.updatedAt });
+  const body = JSON.stringify({ members: state.members, start: state.start, skips: state.skips, swaps: state.swaps, done: state.done, updatedAt: state.updatedAt });
   try {
     // text/plain keeps this a simple request, so Apps Script needs no CORS preflight.
     const res = await fetch(state.api, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body, redirect: 'follow' });

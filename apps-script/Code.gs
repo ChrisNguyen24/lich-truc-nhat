@@ -84,7 +84,7 @@ function sheet(name) {
 
 function readState() {
   var raw = sheet(STATE_SHEET).getRange('A1').getValue();
-  if (!raw) return { members: [], start: '', skips: [], swaps: [], updatedAt: 0 };
+  if (!raw) return { members: [], start: '', skips: [], swaps: [], done: [], updatedAt: 0 };
   return normalize(JSON.parse(raw));
 }
 
@@ -92,13 +92,40 @@ function writeState(state) {
   sheet(STATE_SHEET).getRange('A1').setValue(JSON.stringify(state));
 }
 
+function isoDate(d) {
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+function fromISO(s) {
+  var p = String(s).split('-');
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+}
+
+function mondayOf(d) {
+  var x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return isoDate(x);
+}
+
+/** A done mark is the Monday of the week. Old marks were week numbers. */
+function doneKey(v, start) {
+  var s = String(v);
+  if (/^\d+$/.test(s)) {
+    if (!start) return '';
+    return mondayOf(new Date(fromISO(start).getTime() + Number(s) * WEEK));
+  }
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? mondayOf(fromISO(s)) : '';
+}
+
 function normalize(o) {
   o = o || {};
+  var start = /^\d{4}-\d{2}-\d{2}$/.test(o.start || '') ? o.start : '';
   return {
     members: Array.isArray(o.members) ? o.members.map(String) : [],
-    start: /^\d{4}-\d{2}-\d{2}$/.test(o.start || '') ? o.start : '',
+    start: start,
     skips: Array.isArray(o.skips) ? o.skips.map(Number).filter(function (n) { return n >= 0; }) : [],
     swaps: Array.isArray(o.swaps) ? o.swaps.filter(function (p) { return Array.isArray(p) && p.length === 2; }) : [],
+    done: Array.isArray(o.done) ? o.done.map(function (d) { return doneKey(d, start); }).filter(function (k, i, all) { return k && all.indexOf(k) === i; }) : [],
     updatedAt: Number(o.updatedAt) || 0
   };
 }
@@ -137,6 +164,7 @@ function renderSheet(state) {
       var begin = new Date(start.getTime() + r.week * WEEK);
       var end = new Date(begin.getTime() + 6 * DAY);
       var notes = [];
+      if (state.done.indexOf(isoDate(begin)) >= 0) notes.push('đã trực xong');
       if (r.skipped) notes.push('đã bỏ lượt');
       if (r.swapped) notes.push('đã đổi');
       rows.push(['Tuần ' + (r.week + 1), begin, end, r.name, notes.join(', ')]);

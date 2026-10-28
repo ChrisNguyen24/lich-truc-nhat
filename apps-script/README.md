@@ -20,7 +20,7 @@ After connecting, every change is written to the Sheet. Other people paste the s
 ## What lands in the Sheet
 
 - `_state` — cell A1 holds the raw JSON state of the rotation. This is the source of truth; don't edit it by hand.
-- `Lịch` — a readable table (week, date range, person, notes) regenerated on every save. Safe to read, print, or chart; edits here are overwritten on the next save.
+- `Lịch` — a readable table (week, date range, person, notes) regenerated on every save. The notes column carries `đã trực xong`, `đã bỏ lượt` and `đã đổi`. Safe to read, print, or chart; edits here are overwritten on the next save.
 - `Thu chi` — the shared ledger, one row per entry: `id`, `Ngày` (yyyy-MM-dd as text), `Loại` (`thu`/`chi`), `Số tiền`, `Nội dung`, `Người`, `Ghi chú`, `Đã giải ngân`. Rows are safe to read; the app rewrites them on import.
 
 ## Endpoints
@@ -29,7 +29,7 @@ After connecting, every change is written to the Sheet. Other people paste the s
 | --- | --- |
 | `GET /exec` | Rotation state plus the whole ledger |
 | `GET /exec?resource=ledger` | Ledger only |
-| `POST {members, start, skips, swaps, updatedAt}` | Save the rotation |
+| `POST {members, start, skips, swaps, done, updatedAt}` | Save the rotation (`done` holds the Monday, as `yyyy-MM-dd`, of each week already taken care of) |
 | `POST {kind:"ledger.add", entry}` | Append one entry |
 | `POST {kind:"ledger.settle", id, settled}` | Mark an entry reimbursed or not |
 | `POST {kind:"ledger.delete", id}` | Delete an entry |

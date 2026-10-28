@@ -8,6 +8,8 @@ Single-file web app for a weekly chore rotation. One person per week, in order, 
 - Enter the member list and the start date; the rotation is computed from there.
 - **Bỏ tuần** (skip): that person gives up their turn and the rest of the rotation shifts one week earlier.
 - **Đổi** (swap): click "Đổi" on two weeks to exchange the people assigned to them.
+- **Đánh dấu xong**: tick off a week once its chore is actually done; the week shows a green check and badge, and the mark is shared like the rest of the schedule. Marks are stored against the week's Monday, so editing the member list or the start date leaves them where they are.
+- Every change to the rotation can be undone: "Hoàn lượt", "Bỏ đổi", "Bỏ đánh dấu", or the "Hoàn tác" button in the toast that appears right after a change.
 - The whole schedule is encoded in the URL hash, so sharing the link shares the schedule. State is also cached in `localStorage`.
 - Optional shared storage with no server of your own: connect a Google Apps Script web app backed by a Google Sheet (see `apps-script/README.md`). Changes are then saved to the Sheet and picked up by everyone else's tab.
 - Export/import the schedule as JSON.
